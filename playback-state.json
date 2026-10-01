@@ -1,0 +1,89 @@
+{
+  "currentSongId": "btPJPFnesV4",
+  "currentSong": {
+    "id": "btPJPFnesV4",
+    "title": "Eye of the Tiger",
+    "artist": "Survivor",
+    "album": "Eye of the Tiger",
+    "duration": 245,
+    "bpm": 109,
+    "energy": 9,
+    "genre": "Rock",
+    "coverGradient": "from-amber-600 to-red-800",
+    "votes": 0,
+    "language": "Inglês",
+    "year": 1982,
+    "tags": [
+      "Maromba",
+      "Motivação",
+      "Clássico"
+    ],
+    "requestCount": 31,
+    "likes": 22,
+    "aiModerationLevel": "Aprovado Total",
+    "lastPlayedAt": 1790859163481,
+    "youtubeId": "btPJPFnesV4",
+    "thumbnail": "https://images.unsplash.com/photo-1517838277536-f5f99be501cd?q=80&w=350",
+    "isRequested": false
+  },
+  "currentProgress": 6,
+  "catalogIndex": 3,
+  "consecutiveUpPlayPlayed": 3,
+  "history": [
+    {
+      "id": "v2AC41dglnM",
+      "title": "Thunderstruck",
+      "artist": "AC/DC",
+      "album": "The Razors Edge",
+      "duration": 292,
+      "bpm": 133,
+      "energy": 10,
+      "genre": "Classic Rock / Metal",
+      "coverGradient": "from-orange-600 to-red-900",
+      "votes": 0,
+      "language": "Inglês",
+      "year": 1990,
+      "tags": [
+        "Carga Máxima",
+        "Rock Clássico",
+        "Supino"
+      ],
+      "requestCount": 38,
+      "likes": 29,
+      "aiModerationLevel": "Aprovado Total",
+      "lastPlayedAt": 1787325399279,
+      "youtubeId": "v2AC41dglnM",
+      "thumbnail": "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?q=80&w=350",
+      "isRequested": false
+    },
+    {
+      "id": "ytQ5CYE1VZw",
+      "title": "Till I Collapse",
+      "artist": "Eminem ft. Nate Dogg",
+      "album": "The Eminem Show",
+      "duration": 297,
+      "bpm": 171,
+      "energy": 10,
+      "genre": "Hip Hop / Rap",
+      "coverGradient": "from-red-600 to-black",
+      "votes": 0,
+      "language": "Inglês",
+      "year": 2002,
+      "tags": [
+        "Hipertrofia",
+        "Treino Pesado",
+        "Supino"
+      ],
+      "requestCount": 42,
+      "likes": 28,
+      "aiModerationLevel": "Aprovado Total",
+      "lastPlayedAt": 1787321794955,
+      "youtubeId": "ytQ5CYE1VZw",
+      "thumbnail": "https://images.unsplash.com/photo-1534438327276-14e5300c3a48?q=80&w=350"
+    }
+  ],
+  "queue": [],
+  "isPlaying": false,
+  "bpmMultiplier": 1,
+  "savedAt": 1790859177929
+}
