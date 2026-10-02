@@ -31,12 +31,107 @@ class BackgroundAudioEngine {
   private playbackStartTime: number = 0;
   private initialProgress: number = 0;
   private isUnlocked: boolean = false;
+  private wakeLockSentinel: any = null;
+  private isWakeLockRequestedByGestor: boolean = false;
+  private wakeLockListeners: Set<(active: boolean) => void> = new Set();
 
   constructor() {
     if (typeof window !== "undefined") {
       this.setupLifecycleListeners();
       this.unlockOnFirstInteraction();
     }
+  }
+
+  /**
+   * Subscribe to real Wake Lock status changes (e.g. when released by browser/OS)
+   */
+  public onWakeLockChange(callback: (active: boolean) => void): () => void {
+    this.wakeLockListeners.add(callback);
+    callback(this.getIsWakeLockActive());
+    return () => {
+      this.wakeLockListeners.delete(callback);
+    };
+  }
+
+  private notifyWakeLockChange(): void {
+    const active = this.getIsWakeLockActive();
+    this.wakeLockListeners.forEach((cb) => {
+      try {
+        cb(active);
+      } catch (_) {}
+    });
+  }
+
+  /**
+   * Screen Wake Lock management - STRICT RULE:
+   * Only acquired if the client is authenticated GESTOR and explicitly activated Tela Ativa.
+   * ALUNO, PROFESSOR, or unauthenticated users can NEVER acquire Wake Lock.
+   */
+  public async acquireWakeLock(): Promise<boolean> {
+    // 1. Hard authorization guard: MUST be Gestor (canControl === true) AND explicitly enabled
+    if (!this.canControl || !this.isWakeLockRequestedByGestor) {
+      return false;
+    }
+    // 2. Browser API support check
+    if (typeof navigator === "undefined" || !("wakeLock" in navigator)) {
+      return false;
+    }
+    // 3. Avoid duplicate instances
+    if (this.wakeLockSentinel) {
+      return true;
+    }
+
+    try {
+      this.wakeLockSentinel = await (navigator as any).wakeLock.request("screen");
+      console.log("[WakeLock] Screen Wake Lock acquired EXCLUSIVELY for Gestor.");
+      this.wakeLockSentinel.addEventListener("release", () => {
+        console.log("[WakeLock] Screen Wake Lock released by OS/browser.");
+        this.wakeLockSentinel = null;
+        this.notifyWakeLockChange();
+      });
+      this.notifyWakeLockChange();
+      return true;
+    } catch (err: any) {
+      console.warn("[WakeLock] Could not acquire Wake Lock:", err?.message || err);
+      this.wakeLockSentinel = null;
+      this.notifyWakeLockChange();
+      return false;
+    }
+  }
+
+  public releaseWakeLock(): void {
+    if (this.wakeLockSentinel) {
+      try {
+        this.wakeLockSentinel.release();
+      } catch (_) {}
+      this.wakeLockSentinel = null;
+      this.notifyWakeLockChange();
+      console.log("[WakeLock] Screen Wake Lock released.");
+    }
+  }
+
+  public async setWakeLockRequestedByGestor(enabled: boolean): Promise<boolean> {
+    if (!this.canControl) {
+      // NON-GESTOR (Aluno, Professor) CAN NEVER REQUEST WAKE LOCK
+      this.isWakeLockRequestedByGestor = false;
+      this.releaseWakeLock();
+      return false;
+    }
+    this.isWakeLockRequestedByGestor = enabled;
+    if (enabled) {
+      return await this.acquireWakeLock();
+    } else {
+      this.releaseWakeLock();
+      return false;
+    }
+  }
+
+  public getIsWakeLockActive(): boolean {
+    return Boolean(this.wakeLockSentinel);
+  }
+
+  public getIsWakeLockRequestedByGestor(): boolean {
+    return this.isWakeLockRequestedByGestor;
   }
 
   /**
@@ -222,6 +317,18 @@ class BackgroundAudioEngine {
     this.initialProgress = progress;
     this.playbackStartTime = Date.now();
 
+    // STRICT RULE: If client is not Gestor (Aluno/Professor), NEVER initialize audio elements,
+    // NEVER acquire wake lock, and NEVER run local playback audio or trackers.
+    if (!canControl) {
+      this.isWakeLockRequestedByGestor = false;
+      this.releaseWakeLock();
+      if (this.audioElement && !this.audioElement.paused) {
+        this.audioElement.pause();
+      }
+      this.stopPositionTracker();
+      return;
+    }
+
     this.initialize();
     this.updateMediaSession(song, playing, callbacks, canControl);
 
@@ -289,11 +396,15 @@ class BackgroundAudioEngine {
    * Setup lifecycle listeners for visibilitychange, pagehide, pageshow, freeze, resume
    */
   private setupLifecycleListeners(): void {
-    document.addEventListener("visibilitychange", () => {
+    document.addEventListener("visibilitychange", async () => {
       if (document.visibilityState === "hidden") {
         console.log("[Lifecycle] Page is HIDDEN (Screen locked / App in background). Keeping session active.");
       } else if (document.visibilityState === "visible") {
         console.log("[Lifecycle] Page is VISIBLE (Screen unlocked). Synchronized.");
+        // STRICT RULE: Reacquire Wake Lock ONLY if the client is GESTOR and explicitly requested it
+        if (this.canControl && this.isWakeLockRequestedByGestor) {
+          await this.acquireWakeLock();
+        }
       }
     });
 
@@ -301,8 +412,12 @@ class BackgroundAudioEngine {
       console.log("[Lifecycle] pagehide event (persisted:", e.persisted, ")");
     });
 
-    window.addEventListener("pageshow", (e) => {
+    window.addEventListener("pageshow", async (e) => {
       console.log("[Lifecycle] pageshow event (persisted:", e.persisted, ")");
+      // STRICT RULE: Reacquire Wake Lock ONLY if the client is GESTOR and explicitly requested it
+      if (this.canControl && this.isWakeLockRequestedByGestor) {
+        await this.acquireWakeLock();
+      }
     });
 
     document.addEventListener("freeze", () => {

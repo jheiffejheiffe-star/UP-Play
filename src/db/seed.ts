@@ -449,69 +449,33 @@ export async function seedDatabase() {
       );
     `);
 
-    // 2. Clean/Reset User Registrations & Seed Primary Admin User (jheiffe.jheiffe@gmail.com)
+    // 2. Safe & Idempotent Admin User Verification (Never purges real users, logs, or requests)
     try {
-      console.log("Purging all previous demo user accesses, CPFs and registrations...");
-      // Remove dependent records first if any
-      await db.execute(sql`
-        DELETE FROM audit_logs;
-        DELETE FROM song_requests;
-        DELETE FROM likes;
-        DELETE FROM users WHERE email != 'jheiffe.jheiffe@gmail.com';
-      `);
-
-      // Ensure jheiffe.jheiffe@gmail.com is configured as GESTOR (Admin)
       const existingAdmin = await db.select().from(users).where(eq(users.email, "jheiffe.jheiffe@gmail.com")).limit(1);
       if (existingAdmin.length === 0) {
-        console.log("Seeding primary admin user: jheiffe.jheiffe@gmail.com...");
+        console.log("Creating initial primary admin user: jheiffe.jheiffe@gmail.com...");
+        // Use environment variable or generate secure cryptographically random initial password
+        const initialPass = process.env.INITIAL_ADMIN_PASSWORD || crypto.randomBytes(16).toString("hex");
         await db.insert(users).values({
           nome: "Jheiffe",
           email: "jheiffe.jheiffe@gmail.com",
-          senhaHash: hashPassword("admin123"),
+          senhaHash: hashPassword(initialPass),
           matricula: "UP-ADM001",
           cpf: "52998224725",
           perfil: "GESTOR",
           status: "ATIVO",
           fotoUrl: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=80&w=150&auto=format&fit=crop"
         });
-        console.log("Primary Admin user jheiffe.jheiffe@gmail.com created successfully!");
-      } else {
-        // Ensure profile is always GESTOR and ATIVO
-        await db.update(users).set({
-          nome: "Jheiffe",
-          perfil: "GESTOR",
-          status: "ATIVO",
-          matricula: "UP-ADM001",
-          cpf: "52998224725"
-        }).where(eq(users.email, "jheiffe.jheiffe@gmail.com"));
-        console.log("Primary Admin user jheiffe.jheiffe@gmail.com updated with GESTOR permissions.");
+        console.log("Primary Admin user jheiffe.jheiffe@gmail.com initialized safely.");
       }
     } catch (e: any) {
-      console.warn("Notice during user purge & admin seeding:", e.message);
+      console.warn("Notice during admin user initialization:", e.message);
     }
 
-    // 3. Check and Seed Real Songs (Purging any old fake/mock songs)
-    try {
-      // Purge fake tracks with dummy IDs or placeholder artists
-      await db.execute(sql`
-        DELETE FROM song_requests WHERE musica_id IN (
-          SELECT id FROM songs WHERE youtube_id IN ('t1','t2','t3','t4','t5','t6','t7','t8','t9','t10','t11','t12','t13','t14','t15','t16','t17','t18')
-          OR artista IN ('UP Beats', 'Synth Grid', 'Vocal Force', 'Beat Crushers', 'Alpha Elite', 'X-Treme Sound', 'DJ Electro', 'Velo Beats', 'Code Red', 'Miami Glow', 'Rhythm Shock', 'Beat Battalion', 'Nirvana Chill', 'Cloud Gym', 'Siddhartha', 'Zenith Piano')
-        );
-        DELETE FROM likes WHERE musica_id IN (
-          SELECT id FROM songs WHERE youtube_id IN ('t1','t2','t3','t4','t5','t6','t7','t8','t9','t10','t11','t12','t13','t14','t15','t16','t17','t18')
-          OR artista IN ('UP Beats', 'Synth Grid', 'Vocal Force', 'Beat Crushers', 'Alpha Elite', 'X-Treme Sound', 'DJ Electro', 'Velo Beats', 'Code Red', 'Miami Glow', 'Rhythm Shock', 'Beat Battalion', 'Nirvana Chill', 'Cloud Gym', 'Siddhartha', 'Zenith Piano')
-        );
-        DELETE FROM songs WHERE youtube_id IN ('t1','t2','t3','t4','t5','t6','t7','t8','t9','t10','t11','t12','t13','t14','t15','t16','t17','t18')
-        OR artista IN ('UP Beats', 'Synth Grid', 'Vocal Force', 'Beat Crushers', 'Alpha Elite', 'X-Treme Sound', 'DJ Electro', 'Velo Beats', 'Code Red', 'Miami Glow', 'Rhythm Shock', 'Beat Battalion', 'Nirvana Chill', 'Cloud Gym', 'Siddhartha', 'Zenith Piano');
-      `);
-    } catch (e: any) {
-      console.warn("Notice during fake songs purge:", e.message);
-    }
-
+    // 3. Safe & Idempotent Catalog Seeding (Only seeds if songs table is completely empty)
     const existingSongs = await db.select().from(songs).limit(1);
     if (existingSongs.length === 0) {
-      console.log("Seeding real authentic tracks into songs table...");
+      console.log("Seeding real authentic tracks into empty songs table...");
       for (const track of DEFAULT_TRACK_POOL) {
         await db.insert(songs).values({
           youtubeId: track.youtubeId,

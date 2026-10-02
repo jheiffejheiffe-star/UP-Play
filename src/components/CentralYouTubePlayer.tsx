@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import {
   Play, Pause, SkipForward, SkipBack, Volume2, VolumeX,
   Tv, Music, AlertCircle, RefreshCw, Radio, CheckCircle,
-  Cast, Bluetooth, Speaker, Wifi, CheckCircle2, X, Lock, Smartphone, AlertTriangle
+  Cast, Bluetooth, Speaker, Wifi, CheckCircle2, X, Lock, Smartphone, AlertTriangle, Sun
 } from "lucide-react";
 import { Song } from "../types";
 import { backgroundAudioEngine } from "../utils/backgroundAudioEngine";
@@ -105,9 +105,40 @@ export const CentralYouTubePlayer: React.FC<CentralYouTubePlayerProps> = ({
   const [isScanningDevices, setIsScanningDevices] = useState<boolean>(false);
   const [selectedDeviceId, setSelectedDeviceId] = useState<string>("default_speaker");
   const [deviceScanMessage, setDeviceScanMessage] = useState<string | null>(null);
+  // Real Wake Lock state - starts strictly FALSE by default
+  const [isWakeLockActive, setIsWakeLockActive] = useState<boolean>(false);
   const [detectedDevices, setDetectedDevices] = useState<AudioDevice[]>([
     { id: "default_speaker", label: "Saída de Áudio do Sistema (Alto-falantes / HDMI / Bluetooth do SO)", type: "speaker", status: "active", isDefault: true }
   ]);
+
+  // Synchronize with real Wake Lock sentinel and ensure Aluno/Professor never holds Wake Lock
+  useEffect(() => {
+    if (!canControl) {
+      setIsWakeLockActive(false);
+      backgroundAudioEngine.releaseWakeLock();
+      return;
+    }
+
+    // Subscribe to REAL Wake Lock sentinel status changes
+    const unsubscribe = backgroundAudioEngine.onWakeLockChange((active) => {
+      setIsWakeLockActive(active);
+    });
+
+    return () => {
+      unsubscribe();
+      // On unmount of Gestor deck, release wake lock
+      backgroundAudioEngine.releaseWakeLock();
+    };
+  }, [canControl]);
+
+  const handleToggleWakeLock = async () => {
+    // STRICT RULE: ONLY authenticated GESTOR (canControl === true) CAN ACTIVATE
+    if (!canControl) return;
+
+    const nextState = !isWakeLockActive;
+    const realResult = await backgroundAudioEngine.setWakeLockRequestedByGestor(nextState);
+    setIsWakeLockActive(realResult);
+  };
 
   // Scan Real Audio Devices & Enumerate via Web MediaDevices API
   const handleScanDevices = async () => {
@@ -187,8 +218,9 @@ export const CentralYouTubePlayer: React.FC<CentralYouTubePlayerProps> = ({
     }
   };
 
-  // Background Audio & Media Session API integration for system lockscreen, smartwatches and background continuous playback
+  // Background Audio & Media Session API integration for system lockscreen, smartwatches and background continuous playback (Strictly Gestor)
   useEffect(() => {
+    if (!canControl) return;
     backgroundAudioEngine.syncPlaybackState(
       currentSong,
       isPlaying,
@@ -199,6 +231,11 @@ export const CentralYouTubePlayer: React.FC<CentralYouTubePlayerProps> = ({
           if (canControl) {
             isManualAdminPauseRef.current = false;
             setIsPlaying(true, true);
+            if (playerInstanceRef.current && typeof playerInstanceRef.current.playVideo === "function") {
+              try {
+                playerInstanceRef.current.playVideo();
+              } catch (_) {}
+            }
           }
         },
         onPause: () => {
@@ -333,9 +370,13 @@ export const CentralYouTubePlayer: React.FC<CentralYouTubePlayerProps> = ({
     }, 6000);
 
     // 1. Notify server immediately to remove from pools/queues and blacklist
+    const token = typeof localStorage !== "undefined" ? localStorage.getItem("up_play_token") : null;
     fetch("/api/music/suppress-unavailable", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { "Authorization": `Bearer ${token}` } : {})
+      },
       body: JSON.stringify({
         songId,
         youtubeId: ytId,
@@ -352,8 +393,20 @@ export const CentralYouTubePlayer: React.FC<CentralYouTubePlayerProps> = ({
     }
   };
 
-  // Load YouTube IFrame API and Initialize Player
+  // Load YouTube IFrame API and Initialize Player - STRICT RULE: ONLY GESTOR CAN INSTANTIATE YT.PLAYER
   useEffect(() => {
+    // HARD AUTHORIZATION GUARD: Alunos and Professores NEVER instantiate YouTube Player
+    if (!canControl) {
+      if (playerInstanceRef.current) {
+        try {
+          playerInstanceRef.current.destroy();
+        } catch (_) {}
+        playerInstanceRef.current = null;
+      }
+      setIsPlayerReady(false);
+      return;
+    }
+
     let isMounted = true;
 
     const initAPI = () => {
@@ -369,7 +422,7 @@ export const CentralYouTubePlayer: React.FC<CentralYouTubePlayerProps> = ({
         const previousOnReady = window.onYouTubeIframeAPIReady;
         window.onYouTubeIframeAPIReady = () => {
           if (previousOnReady) previousOnReady();
-          if (isMounted) createPlayer();
+          if (isMounted && canControl) createPlayer();
         };
       } else {
         createPlayer();
@@ -377,7 +430,7 @@ export const CentralYouTubePlayer: React.FC<CentralYouTubePlayerProps> = ({
     };
 
     const createPlayer = () => {
-      if (!playerContainerRef.current) return;
+      if (!canControl || !playerContainerRef.current) return;
       if (playerInstanceRef.current) {
         try {
           playerInstanceRef.current.destroy();
@@ -435,8 +488,8 @@ export const CentralYouTubePlayer: React.FC<CentralYouTubePlayerProps> = ({
                   }
                 } else {
                   console.log("[CentralPlayer] Auto pause detected (screen lock, background tab, or buffer). Preserving continuous playback!");
-                  // If screen is visible, automatically resume!
-                  if (document.visibilityState === "visible" && isPlaying) {
+                  // Automatically attempt immediate resume!
+                  if (isPlaying) {
                     tryPlay(event.target);
                   }
                 }
@@ -568,18 +621,31 @@ export const CentralYouTubePlayer: React.FC<CentralYouTubePlayerProps> = ({
   // Screen unlock / Visibility change listener to keep continuous playback when device screen wakes
   useEffect(() => {
     const handleVisibilityChange = () => {
-      if (document.visibilityState === "visible" && isPlaying) {
+      if (document.visibilityState === "visible") {
         console.log("[CentralPlayer] Screen unlocked / tab visible. Verifying playback.");
-        if (playerInstanceRef.current && typeof playerInstanceRef.current.getPlayerState === "function") {
-          const state = playerInstanceRef.current.getPlayerState();
-          if (state !== window.YT?.PlayerState?.PLAYING && !isManualAdminPauseRef.current) {
+        if (canControl && backgroundAudioEngine.getIsWakeLockRequestedByGestor()) {
+          backgroundAudioEngine.acquireWakeLock();
+        }
+        if (isPlaying && !isManualAdminPauseRef.current) {
+          if (playerInstanceRef.current && typeof playerInstanceRef.current.getPlayerState === "function") {
+            const state = playerInstanceRef.current.getPlayerState();
+            if (state !== window.YT?.PlayerState?.PLAYING) {
+              tryPlay();
+            }
+          } else {
             tryPlay();
           }
         }
       }
     };
     document.addEventListener("visibilitychange", handleVisibilityChange);
-    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("focus", handleVisibilityChange);
+    window.addEventListener("pageshow", handleVisibilityChange);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("focus", handleVisibilityChange);
+      window.removeEventListener("pageshow", handleVisibilityChange);
+    };
   }, [isPlaying]);
 
   // Broadcast audio state changes to window for HomeView and Header UI sync
@@ -725,6 +791,10 @@ export const CentralYouTubePlayer: React.FC<CentralYouTubePlayerProps> = ({
   };
 
   const calculatedBpm = currentSong ? Math.round(currentSong.bpm * bpmMultiplier) : 120;
+
+  if (!canControl) {
+    return null;
+  }
 
   return (
     <>
@@ -898,12 +968,31 @@ export const CentralYouTubePlayer: React.FC<CentralYouTubePlayerProps> = ({
             ) : (
               <>
                 <button
+                  onClick={handleToggleWakeLock}
+                  className={`p-1.5 sm:px-2.5 sm:py-1.5 rounded-xl border text-xs font-mono font-bold transition-all flex items-center gap-1.5 cursor-pointer active:scale-95 ${
+                    isWakeLockActive
+                      ? "bg-amber-500/15 text-amber-300 border-amber-500/30 hover:bg-amber-500/25"
+                      : "bg-zinc-900 text-zinc-500 border-zinc-800 hover:text-zinc-300"
+                  }`}
+                  title={
+                    isWakeLockActive
+                      ? "Modo Academia Ativo: O celular não entrará em repouso durante a reprodução"
+                      : "Clique para impedir que a tela do celular apague/bloqueie"
+                  }
+                >
+                  <Sun className={`w-3.5 h-3.5 ${isWakeLockActive ? "text-amber-400" : "text-zinc-500"}`} />
+                  <span className="hidden md:inline">
+                    {isWakeLockActive ? "Tela Ativa" : "Tela Normal"}
+                  </span>
+                </button>
+
+                <button
                   onClick={() => {
                     setIsDeviceModalOpen(true);
                     handleScanDevices();
                   }}
                   className="p-1.5 sm:p-2 bg-zinc-900 hover:bg-zinc-800 text-emerald-400 border border-emerald-500/20 rounded-xl transition-all cursor-pointer shadow-md active:scale-95"
-                  title="Dispositivos de Áudio e Alexa"
+                  title="Dispositivos de Áudio e Saídas"
                 >
                   <Cast className="w-3.5 sm:w-4 h-3.5 sm:h-4 text-[#00ff66]" />
                 </button>

@@ -156,23 +156,25 @@ export const GestorPlayerView: React.FC<GestorPlayerViewProps> = ({
         
         {/* LEFT COLUMN: ACTIVE DECK & CONTROLS (7 COLS) */}
         <div className={isDocked ? "contents" : "lg:col-span-7 flex flex-col gap-6"}>
-          {/* EMBEDDED REAL YOUTUBE PLAYER CENTRAL - PERSISTENT INSTANCE */}
-          <CentralYouTubePlayer
-            currentSong={activeZone.currentSong}
-            isPlaying={isPlaying}
-            setIsPlaying={setIsPlaying}
-            handleNextTrack={handleNextTrack}
-            handlePrevTrack={handlePrevTrack}
-            bpmMultiplier={activeZone.bpmMultiplier}
-            activeZoneName={activeZone.name}
-            activeZoneId={activeZone.id}
-            queueCount={activeZone.queue.length}
-            isDocked={isDocked}
-            onExpandPlayer={onExpandPlayer}
-            canControl={canControl}
-            initialProgress={activeZone.currentProgress || 0}
-            onSuppressUnavailableTrack={onSuppressUnavailableTrack}
-          />
+          {/* EMBEDDED REAL YOUTUBE PLAYER CENTRAL - PERSISTENT INSTANCE ONLY FOR GESTOR */}
+          {canControl && (
+            <CentralYouTubePlayer
+              currentSong={activeZone.currentSong}
+              isPlaying={isPlaying}
+              setIsPlaying={setIsPlaying}
+              handleNextTrack={handleNextTrack}
+              handlePrevTrack={handlePrevTrack}
+              bpmMultiplier={activeZone.bpmMultiplier}
+              activeZoneName={activeZone.name}
+              activeZoneId={activeZone.id}
+              queueCount={activeZone.queue.length}
+              isDocked={isDocked}
+              onExpandPlayer={onExpandPlayer}
+              canControl={canControl}
+              initialProgress={activeZone.currentProgress || 0}
+              onSuppressUnavailableTrack={onSuppressUnavailableTrack}
+            />
+          )}
 
           {/* VIEW QUEUE LIST (Fila do Setor) */}
           {!isDocked && (

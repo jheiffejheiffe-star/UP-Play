@@ -33,8 +33,7 @@ if (!jwtSecret) {
     } else {
       console.warn("================================================================================");
       console.warn("⚠️  [WARNING] JWT_SECRET is not configured.");
-      console.warn("   A cryptographically secure 32-byte key has been generated automatically for development:");
-      console.warn(`   👉 ${autoSecret}`);
+      console.warn("   A cryptographically secure 32-byte key has been generated automatically for development.");
       console.warn("   This key is being used for the current session execution.");
       console.warn("   In a production environment, the server will refuse to start without JWT_SECRET.");
       console.warn("================================================================================");

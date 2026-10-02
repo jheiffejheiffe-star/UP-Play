@@ -894,7 +894,12 @@ app.post("/api/music/dedicate", authMiddleware, async (req: any, res) => {
 });
 
 // 4. Activate Power Mode (Instructor challenge / spurt)
-app.post("/api/music/power-mode", (req, res) => {
+app.post("/api/music/power-mode", authMiddleware, (req: any, res) => {
+  // STRICT RBAC: Only Instructors (PROFESSOR) or Managers (GESTOR) can activate Power Mode
+  if (req.user?.perfil !== "GESTOR" && req.user?.perfil !== "PROFESSOR") {
+    return res.status(403).json({ success: false, message: "Apenas instrutores ou gestores podem acionar o Modo UP Power." });
+  }
+
   const { zoneId } = req.body;
   const zone = GYM_ZONES.find(z => z.id === (zoneId || "musculacao"));
   if (!zone) {
@@ -974,12 +979,14 @@ app.post("/api/music/playback", authMiddleware, adminMiddleware, (req: any, res)
   res.json({ success: true, zone });
 });
 
-// Skip to next track (Auto-advance allowed for active player session; manual skip strictly restricted to GESTOR)
-app.post("/api/music/next-track", authMiddleware, (req: any, res) => {
-  const { zoneId, isAutoAdvance } = req.body;
-  if (!isAutoAdvance && req.user?.perfil !== "GESTOR") {
-    return res.status(403).json({ success: false, message: "Apenas gestores podem pular faixas manualmente." });
+// Skip to next track (Strictly GESTOR: handles both manual next and central player auto-advance)
+app.post("/api/music/next-track", authMiddleware, adminMiddleware, (req: any, res) => {
+  // STRICT RULE: Only GESTOR session is authorized to advance tracks (manual skip or central player auto-advance)
+  if (req.user?.perfil !== "GESTOR") {
+    return res.status(403).json({ success: false, message: "Apenas o gestor mestre pode avançar músicas." });
   }
+
+  const { zoneId, isAutoAdvance } = req.body;
 
   const zone = GYM_ZONES.find(z => z.id === (zoneId || "musculacao"));
   if (!zone) {
@@ -1098,8 +1105,8 @@ app.post("/api/music/queue/remove", authMiddleware, adminMiddleware, (req: any, 
   res.json({ success: true, zone });
 });
 
-// Suppress an unavailable YouTube video immediately from queue, catalog, and active playback
-app.post("/api/music/suppress-unavailable", async (req, res) => {
+// Suppress an unavailable YouTube video immediately from queue, catalog, and active playback (Strictly GESTOR)
+app.post("/api/music/suppress-unavailable", authMiddleware, adminMiddleware, async (req, res) => {
   const { songId, youtubeId, zoneId, reason } = req.body;
   
   if (!songId && !youtubeId) {

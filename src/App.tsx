@@ -63,6 +63,7 @@ import { TopUpView } from "./components/TopUpView";
 import { GestorDashboardView, LogEntry } from "./components/GestorDashboardView";
 import { GestorAlunosView, Student } from "./components/GestorAlunosView";
 import { GestorPlayerView } from "./components/GestorPlayerView";
+import { StudentPlayerDock } from "./components/StudentPlayerDock";
 import { GestorAnunciosView } from "./components/GestorAnunciosView";
 import { GestorBIView } from "./components/GestorBIView";
 import { GestorConfigView } from "./components/GestorConfigView";
@@ -231,8 +232,8 @@ export default function App() {
   };
 
   const handleNextTrack = async (isAutoAdvance: boolean = false) => {
-    // If it's an auto-advance (track ended naturally or lockscreen trigger), ANY client can advance the zone track
-    if (!isAutoAdvance && !isGestor(currentUser)) return;
+    // STRICT RULE: Only GESTOR can trigger track advancement (manual or auto-advance from master player)
+    if (!isGestor(currentUser)) return;
     try {
       const res = await fetch(`/api/music/next-track`, {
         method: "POST",
@@ -2293,7 +2294,7 @@ export default function App() {
       </aside>
 
       {/* 2. MAIN WORKSPACE */}
-      <main id="main-workspace" className="flex-1 flex flex-col min-w-0 bg-[#09090b] relative overflow-y-auto min-h-screen">
+      <main id="main-workspace" className="flex-1 flex flex-col min-w-0 bg-[#09090b] relative min-h-screen">
         
         {/* Dynamic Theme Banner matching selected Gym Zone */}
         {activeZone && (
@@ -3410,35 +3411,48 @@ export default function App() {
           )}
 
           {/* ================= PERSISTENT GYM AUDIO ENGINE & GESTOR PLAYER (NEVER UNMOUNTED) ================= */}
-          <div className={activeTab === "gestor-player" && isGestor(currentUser) ? "block" : "contents"}>
-            <GestorPlayerView
-              zones={zones}
-              activeZoneId={activeZoneId}
-              setActiveZoneId={setActiveZoneId}
-              trackPool={trackPool}
-              handleNextTrack={handleNextTrack}
-              handlePrevTrack={handlePrevTrack}
-              handleTogglePlayPause={() => {
-                handleTogglePlayback(isPaused, true);
-              }}
-              handleRemoveFromQueue={handleRemoveFromQueue}
-              handleAddToQueue={handleAddToQueue}
-              isSynthPlaying={!isPaused}
+          {isGestor(currentUser) ? (
+            <div className={activeTab === "gestor-player" ? "block" : "contents"}>
+              <GestorPlayerView
+                zones={zones}
+                activeZoneId={activeZoneId}
+                setActiveZoneId={setActiveZoneId}
+                trackPool={trackPool}
+                handleNextTrack={handleNextTrack}
+                handlePrevTrack={handlePrevTrack}
+                handleTogglePlayPause={() => {
+                  handleTogglePlayback(isPaused, true);
+                }}
+                handleRemoveFromQueue={handleRemoveFromQueue}
+                handleAddToQueue={handleAddToQueue}
+                isSynthPlaying={!isPaused}
+                isPlaying={!isPaused}
+                setIsPlaying={(p, manual) => handleTogglePlayback(p, manual)}
+                addLog={addLog}
+                isDocked={activeTab !== "gestor-player"}
+                onExpandPlayer={() => setActiveTab("gestor-player")}
+                canControl={true}
+                onSuppressUnavailableTrack={(song, reason) => {
+                  setTrackPool(prev => prev.filter(s => s.id !== song.id && (!song.youtubeId || s.youtubeId !== song.youtubeId)));
+                  setZones(prev => prev.map(z => ({
+                    ...z,
+                    queue: z.queue.filter(s => s.id !== song.id && (!song.youtubeId || s.youtubeId !== song.youtubeId))
+                  })));
+                }}
+              />
+            </div>
+          ) : (
+            <StudentPlayerDock
+              currentSong={activeZone?.currentSong || null}
               isPlaying={!isPaused}
-              setIsPlaying={(p, manual) => handleTogglePlayback(p, manual)}
-              addLog={addLog}
-              isDocked={activeTab !== "gestor-player" || !isGestor(currentUser)}
-              onExpandPlayer={() => setActiveTab("gestor-player")}
-              canControl={isGestor(currentUser)}
-              onSuppressUnavailableTrack={(song, reason) => {
-                setTrackPool(prev => prev.filter(s => s.id !== song.id && (!song.youtubeId || s.youtubeId !== song.youtubeId)));
-                setZones(prev => prev.map(z => ({
-                  ...z,
-                  queue: z.queue.filter(s => s.id !== song.id && (!song.youtubeId || s.youtubeId !== song.youtubeId))
-                })));
-              }}
+              zoneName={activeZone?.name || "Musculação"}
+              queueCount={activeZone?.queue?.length || 0}
+              currentProgress={activeZone?.currentProgress || 0}
+              playbackTimestamp={activeZone?.playbackTimestamp || Date.now()}
+              onOpenQueue={() => setActiveTab("queue")}
+              onOpenCatalog={() => setActiveTab("pedir")}
             />
-          </div>
+          )}
 
         </div>
 

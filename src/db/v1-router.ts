@@ -409,7 +409,7 @@ router.post("/auth/google", async (req, res) => {
   }
 });
 
-router.post("/auth/refresh", (req, res) => {
+router.post("/auth/refresh", async (req, res) => {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
     return res.status(401).json({ success: false, message: "Token ausente." });
@@ -417,8 +417,23 @@ router.post("/auth/refresh", (req, res) => {
   const token = authHeader.split(" ")[1];
   try {
     const decoded = jwt.verify(token, JWT_SECRET, { ignoreExpiration: true }) as any;
+    if (!decoded || !decoded.id) {
+      return res.status(401).json({ success: false, message: "Token inválido." });
+    }
+
+    // Verify user exists and status is active in PostgreSQL database
+    const userResult = await db.select().from(users).where(eq(users.id, decoded.id)).limit(1);
+    if (userResult.length === 0) {
+      return res.status(401).json({ success: false, message: "Usuário não encontrado ou removido." });
+    }
+
+    const user = userResult[0];
+    if (user.status !== "ATIVO") {
+      return res.status(403).json({ success: false, message: "Conta inativa ou bloqueada. Acesso revogado." });
+    }
+
     const newToken = jwt.sign(
-      { id: decoded.id, nome: decoded.nome, email: decoded.email, perfil: decoded.perfil },
+      { id: user.id, nome: user.nome, email: user.email, perfil: user.perfil },
       JWT_SECRET,
       { expiresIn: "24h" }
     );
@@ -795,7 +810,8 @@ router.post("/users/purge-all", authMiddleware, adminMiddleware, async (req: Aut
     // Ensure jheiffe.jheiffe@gmail.com exists
     const existing = await db.select().from(users).where(eq(users.email, "jheiffe.jheiffe@gmail.com")).limit(1);
     if (existing.length === 0) {
-      const masterHash = await hashPassword("admin123");
+      const initialPass = process.env.INITIAL_ADMIN_PASSWORD || crypto.randomBytes(16).toString("hex");
+      const masterHash = await hashPassword(initialPass);
       await db.insert(users).values({
         nome: "Jheiffe",
         email: "jheiffe.jheiffe@gmail.com",
